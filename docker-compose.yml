@@ -1,0 +1,50 @@
+# PS:
+# $env:SERVER_PWD = "YourDefaultPwd"
+# $env:DEVELOPER_LOGIN = "YourDbLogin"
+# $env:DEVELOPER_PWD = "YourDbPwd"
+# $env:DEVELOPER_DB = "YourDbName"
+# Write-Host "SERVER_PWD: $env:SERVER_PWD" 
+
+# Bash:
+# export SERVER_PWD="YourDefaultPwd"
+# export DEVELOPER_LOGIN="YourDbLogin"
+# export DEVELOPER_PWD="YourDbPwd"
+# export DEVELOPER_DB="YourDbName"
+# echo $SERVER_PWD 
+
+# docker-compose -f docker-compose.yml up
+# docker-compose -f docker-compose.yml down
+# docker-compose -f docker-compose.yml start
+# docker-compose -f docker-compose.yml stop
+# docker-compose -f docker-compose.yml build
+# -------------------------------------------
+
+name: ef-sql-express
+services:
+    sqlexpress2022:
+        container_name: efsqlexpress
+        image: mcr.microsoft.com/mssql/server:2022-CU15-GDR1-ubuntu-22.04
+        ports:
+            - 1433:1433
+        volumes:
+            - efsqldata:/var/opt/mssql
+            - ./sqlscripts:/usr/src/app
+        hostname:
+            efsqlexpresshost
+        environment:
+            ACCEPT_EULA: Y
+            MSSQL_SA_PASSWORD: ${SERVER_PWD}
+            MSSQL_COLLATION: SQL_Latin1_General_CP1_CI_AS
+            MSSQL_PID: Express
+        command:
+            - /bin/bash
+            - -c
+            - |
+                /opt/mssql/bin/sqlservr & sleep 10;
+                /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "${SERVER_PWD}" -d master -q "CREATE LOGIN ${DEVELOPER_LOGIN} WITH PASSWORD = '${DEVELOPER_PWD}'" -C;
+                /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "${SERVER_PWD}" -d master -q "IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = '${DEVELOPER_DB}') BEGIN CREATE DATABASE [${DEVELOPER_DB}] COLLATE SQL_Latin1_General_CP1_CI_AS; END" -C;
+                /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "${SERVER_PWD}" -d master -q "IF EXISTS (SELECT 1 FROM master.sys.server_principals WHERE name = '${DEVELOPER_LOGIN}') BEGIN EXEC master..sp_addsrvrolemember @loginame = '${DEVELOPER_LOGIN}', @rolename = 'sysadmin'; END" -C;
+                wait
+
+volumes:
+    efsqldata:
