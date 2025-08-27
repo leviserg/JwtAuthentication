@@ -1,4 +1,8 @@
-﻿using JwtAuthentication.Data.Models.Auth;
+﻿using JwtAuthentication.Data;
+using JwtAuthentication.Data.Models;
+using JwtAuthentication.Data.Models.Auth;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -9,11 +13,47 @@ namespace JwtAuthentication.Services.Auth
 
     public interface IAuthUserService
     {
-        public string CreateToken(User user);
+        Task<Required<User, string>> RegisterAsync(UserDto request);
+
+        Task<Required<AccessToken, string>> LoginAsync(UserDto request);
+
     }
-    public class AuthUserService(IConfiguration configuration) : IAuthUserService
+    public class AuthUserService(
+        IApplicationDbContext applicationDbContext,
+        IConfiguration configuration) : IAuthUserService
     {
-        public string CreateToken(User user)
+
+        public async Task<Required<User, string>> RegisterAsync(UserDto request)
+        {
+
+
+
+
+
+            var hashedPassword = new PasswordHasher<User>().HashPassword(user, request.Password);
+
+            user.Name = request.Name;
+            user.PasswordHash = hashedPassword;
+            // Here you would typically save the user to a database
+            // For this example, we'll just return the user object
+            return await Task.FromResult(user);
+        }
+
+
+        public async Task<Required<AccessToken, string>> LoginAsync(UserDto request)
+        {
+            var user = new User
+            {
+                Name = request.Name,
+                PasswordHash = new PasswordHasher<User>().HashPassword(null!, request.Password)
+            };
+            // Here you would typically save the user to a database
+            // For this example, we'll just return the user object
+            return await Task.FromResult(user);
+        }
+
+
+        private AccessToken CreateToken(User user)
         {
             var claims = new List<Claim>
             {
@@ -36,7 +76,11 @@ namespace JwtAuthentication.Services.Auth
                 claims: claims
             );
 
-            return new JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
+            return new AccessToken
+            {
+                Token = new JwtSecurityTokenHandler().WriteToken(tokenDescriptor),
+                ExpirationSeconds = (int)TimeSpan.FromHours(1).TotalSeconds
+            };
         }
     }
 }
