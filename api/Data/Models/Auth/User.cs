@@ -16,5 +16,9 @@ namespace JwtAuthentication.Data.Models.Auth
 
         [MaxLength(100)]
         public string? Role { get; set; } = null;
+
+        public string? RefreshToken { get; set; }
+
+        public DateTime? RefreshTokenExpiration { get; set; }
     }
 }

@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace JwtAuthentication.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20250830165149_Init")]
+    [Migration("20250830170426_Init")]
     partial class Init
     {
         /// <inheritdoc />
@@ -44,6 +44,12 @@ namespace JwtAuthentication.Migrations
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("RefreshTokenExpiration")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Role")
                         .HasMaxLength(100)

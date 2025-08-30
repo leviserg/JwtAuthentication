@@ -22,7 +22,7 @@ namespace JwtAuthentication.Controllers
         }
 
         [HttpPost("login")]
-        public async Task<ActionResult<AccessToken>> Login(UserDto request)
+        public async Task<ActionResult<TokenResponseDto>> Login(UserDto request)
         {
 
             var result = await authUserService.LoginAsync(request);
@@ -33,6 +33,16 @@ namespace JwtAuthentication.Controllers
             return Ok(result.Value);
         }
 
+        [HttpPost("refresh-token")]
+        public async Task<ActionResult<TokenResponseDto>> RefreshToken(RefreshTokenRequestDto request)
+        {
 
+            var result = await authUserService.RefreshTokensAsync(request);
+
+            if (result.HasErrors)
+                return BadRequest(string.Join(';', result.Errors));
+
+            return Ok(result.Value);
+        }
     }
 }

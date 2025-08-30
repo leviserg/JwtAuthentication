@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace JwtAuthentication.Services.Auth
@@ -13,9 +14,11 @@ namespace JwtAuthentication.Services.Auth
 
     public interface IAuthUserService
     {
-        Task<Required<UserDto, string>> RegisterAsync(UserDto request);
+        Task<Required<Guid, string>> RegisterAsync(UserDto request);
 
-        Task<Required<AccessToken, string>> LoginAsync(UserDto request);
+        Task<Required<TokenResponseDto, string>> LoginAsync(UserDto request);
+
+        Task<Required<TokenResponseDto, string>> RefreshTokensAsync(RefreshTokenRequestDto request);
 
     }
     public class AuthUserService(
@@ -24,25 +27,27 @@ namespace JwtAuthentication.Services.Auth
     {
 
         private const int TokenExpirationHours = 1;
-
-        public async Task<Required<UserDto, string>> RegisterAsync(UserDto request)
+        private const int RefreshTokenExpirationDays = 7;
+        
+        #region Public methods
+        public async Task<Required<Guid, string>> RegisterAsync(UserDto request)
         {
 
             if (string.IsNullOrWhiteSpace(request.Email))
             {
-                return new Required<UserDto, string>(request, "Email required");
+                return new Required<Guid, string>(Guid.Empty, "Email required");
             }
 
             if(!string.IsNullOrEmpty(request.Role))
             {
                 var availableRoles = new List<string> { UserRole.Admin, UserRole.AdvancedUser, UserRole.User };
                 if (!availableRoles.Contains(request.Role))
-                    return new Required<UserDto, string>(request, "Invalid role");
+                    return new Required<Guid, string>(Guid.Empty, "Invalid role");
             }
 
             if (await dbContext.Users.AnyAsync(u => u.Name == request.Name))
             {
-                return new Required<UserDto, string>(request, $"User with the name {request.Name} already exists");
+                return new Required<Guid, string>(Guid.Empty, $"User with the name {request.Name} already exists");
             }
 
             var user = new User() { 
@@ -58,17 +63,17 @@ namespace JwtAuthentication.Services.Auth
             dbContext.Users.Add(user);
             await dbContext.SaveChangesAsync();
 
-            return new Required<UserDto, string>(request);
+            return new Required<Guid, string>(user.Id);
         }
 
 
-        public async Task<Required<AccessToken, string>> LoginAsync(UserDto request)
+        public async Task<Required<TokenResponseDto, string>> LoginAsync(UserDto request)
         {
 
             var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Name == request.Name);
 
             if (user == null)
-                return new Required<AccessToken, string>(new AccessToken(), "User not found");
+                return new Required<TokenResponseDto, string>(new TokenResponseDto(), "User not found");
 
             var passwordVerification = new PasswordHasher<User>().VerifyHashedPassword(
                 user,
@@ -77,13 +82,43 @@ namespace JwtAuthentication.Services.Auth
             );
 
             if (passwordVerification == PasswordVerificationResult.Failed)
-                return new Required<AccessToken, string>(new AccessToken(), "Wrong password");
+                return new Required<TokenResponseDto, string>(new TokenResponseDto(), "Wrong password");
 
-            return new Required<AccessToken, string>(CreateToken(user));
+            var tokenResponse = await CreateTokenResponseAsync(user);
+
+            return new Required<TokenResponseDto, string>(tokenResponse);
+        }
+
+        public async Task<Required<TokenResponseDto, string>> RefreshTokensAsync(RefreshTokenRequestDto request)
+        {
+            var user = await ValidateRefreshTokenAsync(request);
+            if (user is null)
+            {
+                return new Required<TokenResponseDto, string>(new TokenResponseDto(), "Invalid refresh token or user");
+            }
+
+            var tokenResponse = await CreateTokenResponseAsync(user);
+
+            return new Required<TokenResponseDto, string>(tokenResponse);
+        }
+
+        #endregion
+
+
+        #region Private methods
+
+
+        private async Task<TokenResponseDto> CreateTokenResponseAsync(User user)
+        {
+            var refreshToken = await GetOrAddRefreshToken(user);
+
+            var tokenResponse = CreateToken(user);
+            tokenResponse.RefreshToken = refreshToken;
+            return tokenResponse;
         }
 
 
-        private AccessToken CreateToken(User user)
+        private TokenResponseDto CreateToken(User user)
         {
             var claims = new List<Claim>
             {
@@ -109,11 +144,41 @@ namespace JwtAuthentication.Services.Auth
                 claims: claims
             );
 
-            return new AccessToken
+            return new TokenResponseDto
             {
-                Token = new JwtSecurityTokenHandler().WriteToken(tokenDescriptor),
+                AccessToken = new JwtSecurityTokenHandler().WriteToken(tokenDescriptor),
                 ExpirationSeconds = (int)TimeSpan.FromHours(TokenExpirationHours).TotalSeconds
             };
         }
+
+        private async Task<string> GetOrAddRefreshToken(User user)
+        {
+            var refreshToken = GenerateRefreshToken();
+
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiration = DateTime.UtcNow.AddDays(RefreshTokenExpirationDays);
+            await dbContext.SaveChangesAsync();
+            return refreshToken;
+        }
+
+        private static string GenerateRefreshToken()
+        {
+            var randomNumber = new byte[32];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(randomNumber);
+            return Convert.ToBase64String(randomNumber);
+        }
+
+        private async Task<User?> ValidateRefreshTokenAsync(RefreshTokenRequestDto request)
+        {
+            var user = await dbContext.Users.FindAsync(request.UserId);
+            if (user == null 
+                || user.RefreshToken != request.RefreshToken
+                || user.RefreshTokenExpiration <= DateTime.UtcNow)
+                return null;
+            return user;
+        }
+
+        #endregion
     }
 }
