@@ -2,7 +2,7 @@
 using JwtAuthentication.Data.Models;
 using JwtAuthentication.Data.Models.Auth;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -13,43 +13,73 @@ namespace JwtAuthentication.Services.Auth
 
     public interface IAuthUserService
     {
-        Task<Required<User, string>> RegisterAsync(UserDto request);
+        Task<Required<UserDto, string>> RegisterAsync(UserDto request);
 
         Task<Required<AccessToken, string>> LoginAsync(UserDto request);
 
     }
     public class AuthUserService(
-        IApplicationDbContext applicationDbContext,
+        IApplicationDbContext dbContext,
         IConfiguration configuration) : IAuthUserService
     {
 
-        public async Task<Required<User, string>> RegisterAsync(UserDto request)
+        private const int TokenExpirationHours = 1;
+
+        public async Task<Required<UserDto, string>> RegisterAsync(UserDto request)
         {
 
+            if (string.IsNullOrWhiteSpace(request.Email))
+            {
+                return new Required<UserDto, string>(request, "Email required");
+            }
 
+            if(!string.IsNullOrEmpty(request.Role))
+            {
+                var availableRoles = new List<string> { UserRole.Admin, UserRole.AdvancedUser, UserRole.User };
+                if (!availableRoles.Contains(request.Role))
+                    return new Required<UserDto, string>(request, "Invalid role");
+            }
 
+            if (await dbContext.Users.AnyAsync(u => u.Name == request.Name))
+            {
+                return new Required<UserDto, string>(request, $"User with the name {request.Name} already exists");
+            }
 
+            var user = new User() { 
+                Name = request.Name,
+                Email = request.Email,
+                Role = request.Role
+            };
 
             var hashedPassword = new PasswordHasher<User>().HashPassword(user, request.Password);
 
-            user.Name = request.Name;
             user.PasswordHash = hashedPassword;
-            // Here you would typically save the user to a database
-            // For this example, we'll just return the user object
-            return await Task.FromResult(user);
+
+            dbContext.Users.Add(user);
+            await dbContext.SaveChangesAsync();
+
+            return new Required<UserDto, string>(request);
         }
 
 
         public async Task<Required<AccessToken, string>> LoginAsync(UserDto request)
         {
-            var user = new User
-            {
-                Name = request.Name,
-                PasswordHash = new PasswordHasher<User>().HashPassword(null!, request.Password)
-            };
-            // Here you would typically save the user to a database
-            // For this example, we'll just return the user object
-            return await Task.FromResult(user);
+
+            var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Name == request.Name);
+
+            if (user == null)
+                return new Required<AccessToken, string>(new AccessToken(), "User not found");
+
+            var passwordVerification = new PasswordHasher<User>().VerifyHashedPassword(
+                user,
+                user.PasswordHash,
+                request.Password
+            );
+
+            if (passwordVerification == PasswordVerificationResult.Failed)
+                return new Required<AccessToken, string>(new AccessToken(), "Wrong password");
+
+            return new Required<AccessToken, string>(CreateToken(user));
         }
 
 
@@ -57,7 +87,10 @@ namespace JwtAuthentication.Services.Auth
         {
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.Name, user.Name)
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Name),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.Role, user.Role ?? UserRole.User)
             };
 
             var appSettingsKey = configuration.GetValue<string>("AuthSettings:TokenKey");
@@ -79,7 +112,7 @@ namespace JwtAuthentication.Services.Auth
             return new AccessToken
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(tokenDescriptor),
-                ExpirationSeconds = (int)TimeSpan.FromHours(1).TotalSeconds
+                ExpirationSeconds = (int)TimeSpan.FromHours(TokenExpirationHours).TotalSeconds
             };
         }
     }

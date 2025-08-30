@@ -1,6 +1,5 @@
 ﻿using JwtAuthentication.Data.Models.Auth;
 using JwtAuthentication.Services.Auth;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace JwtAuthentication.Controllers
@@ -10,39 +9,28 @@ namespace JwtAuthentication.Controllers
     public class AuthController(IAuthUserService authUserService) : ControllerBase
     {
 
-        public static User user = new();
-
-
         [HttpPost("register")]
-        public ActionResult<User> Register(UserDto registerRequest)
+        public async Task<ActionResult<UserDto>> Register(UserDto request)
         {
 
-            var hashedPassword = new PasswordHasher<User>().HashPassword(user, registerRequest.Password);
+            var result = await authUserService.RegisterAsync(request);
 
-            user.Name = registerRequest.Name;
-            user.PasswordHash = hashedPassword;
+            if (result.HasErrors)
+                return BadRequest(string.Join(';', result.Errors));
 
-            return Ok(user);
+            return Ok(result.Value);
         }
 
         [HttpPost("login")]
-        public ActionResult<string> Login(UserDto loginRequest)
+        public async Task<ActionResult<AccessToken>> Login(UserDto request)
         {
-            if (!user.Name.Equals(loginRequest.Name))
-                return BadRequest("User not found");
 
-            var passwordVerification = new PasswordHasher<User>().VerifyHashedPassword(
-                user,
-                user.PasswordHash,
-                loginRequest.Password
-            );
+            var result = await authUserService.LoginAsync(request);
 
-            if (passwordVerification == PasswordVerificationResult.Failed)
-                return BadRequest("Wrong password");
+            if (result.HasErrors)
+                return BadRequest(string.Join(';', result.Errors));
 
-            var token = authUserService.CreateToken(user);
-
-            return Ok(token);
+            return Ok(result.Value);
         }
 
 

@@ -1,6 +1,9 @@
 ﻿using JwtAuthentication.Data;
 using JwtAuthentication.Services.Auth;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 namespace JwtAuthentication
 {
@@ -23,6 +26,29 @@ namespace JwtAuthentication
             {
                 options.UseSqlServer(connectionString);
             });
+
+            #endregion
+
+            #region JwtAuthentication Schema definition
+
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(options =>                 {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidIssuer = configuration["AuthSettings:Issuer"],
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+
+                        ValidAudience = configuration["AuthSettings:Audience"],
+                        IssuerSigningKey = new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(configuration["AuthSettings:TokenKey"] ?? string.Empty)
+                        ),
+                        ClockSkew = TimeSpan.Zero
+                    };
+                }
+                );
+
 
             #endregion
 

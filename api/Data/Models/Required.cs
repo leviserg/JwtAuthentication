@@ -21,6 +21,16 @@ public class Required<TValue, TError>
 
     }
 
+    public Required(TValue value, TError error)
+    {
+        _errors = new LinkedList<TError>();
+
+        ArgumentNullException.ThrowIfNull(value);
+
+        Value = value;
+        AddError(error);
+    }
+
     public void AddError(TError error)
     {
         ArgumentNullException.ThrowIfNull(error);
